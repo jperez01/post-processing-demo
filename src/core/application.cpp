@@ -86,7 +86,7 @@ void Application::init()
 
     // asyncLoadModel("../../resources/objects/sponzaBasic/glTF/Sponza.gltf", GLTF);
 
-    Model newModel("../../resources/objects/sponzaBasic/glTF/Sponza.gltf", GLTF);
+    Model newModel("../resources/objects/sponzaBasic/glTF/Sponza.gltf", GLTF);
     glm::mat4 model = glm::mat4(1.0f);
     model = glm::scale(model, glm::vec3(0.1f));
     newModel.model_matrix = model;

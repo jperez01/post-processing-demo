@@ -4,7 +4,7 @@ Shader::Shader() {}
 
 Shader::Shader(const char* vertexPath, const char* fragmentPath, 
     const char* geoPath) {
-    const string shaderPath = "../../shaders/";
+    const string shaderPath = "../shaders/";
 
     string convertedVertexPath = shaderPath + vertexPath;
     string convertedFragmentPath = shaderPath + fragmentPath;

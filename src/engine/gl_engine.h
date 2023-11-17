@@ -20,13 +20,22 @@ class RenderEngine : public GLEngine {
         unsigned int planeTexture;
 
         EnviornmentCubemap cubemap;
+        ScreenQuad screenQuad;
 
         unsigned int gBuffer;
-        unsigned int positionTexture, normalTexture, albedoTexture;
+        unsigned int positionTexture, normalTexture, albedoTexture, depthMap;
 
-        Shader gBufferPipeline, SSAOPipeline, finalPipeline;
+        Shader gBufferPipeline, finalPipeline;
 
-        std::vector<glm::vec3> rotationVectors;
+        glm::vec3 warpSize = glm::vec3(8.0f, 8.0f, 1.0f);
+        ComputeShader ssaoPipeline;
+        unsigned int ssaoTexture;
+
+        ComputeShader blurPipeline;
+        unsigned int blurTexture;
+
+        std::vector<glm::vec3> ssaoKernel, ssaoNoise;
+        unsigned int noiseTexture;
 
         void RenderEngine::renderScene(std::vector<Model>& objs, Shader& shader, bool skipTextures);
 };

@@ -7,7 +7,7 @@
 ComputeShader::ComputeShader() {}
 
 ComputeShader::ComputeShader(std::string computePath) {
-    std::string generalPath = "../../shaders/";
+    std::string generalPath = "../shaders/";
     std::string fullPath = generalPath + computePath;
     std::string computeCode;
     std::ifstream computeFile;

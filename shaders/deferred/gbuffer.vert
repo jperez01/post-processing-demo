@@ -13,13 +13,13 @@ uniform mat4 model;
 uniform mat4 proj;
 
 void main() {
-	vec4 convertedPos = proj * view * model * vec4(aPos, 1.0);
+	vec4 convertedPos = view * model * vec4(aPos, 1.0);
 
 	FragPos = convertedPos.xyz;
 	TexCoords = aTexCoords;
 
-	mat3 normalMatrix = mat3(transpose(inverse(model)));
+	mat3 normalMatrix = mat3(transpose(inverse(view * model)));
 	Normal = normalMatrix * aNormal;
 
-	gl_Position = convertedPos;
+	gl_Position = proj * convertedPos;
 }

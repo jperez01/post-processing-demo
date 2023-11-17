@@ -10,7 +10,7 @@ namespace UI {
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
         ImGui::StyleColorsDark();
-        icons = glutil::loadSomeTexture("../../resources/textures/icons.png");
+        icons = glutil::loadSomeTexture("../resources/textures/icons.png");
     }
 
     void drawIcon(int x, int y, float size, float alpha)
