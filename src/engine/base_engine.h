@@ -35,6 +35,7 @@ public:
 
     Camera* camera = nullptr;
     int WINDOW_WIDTH = 1920, WINDOW_HEIGHT = 1080;
+    glm::vec2 screenSize = glm::vec2(WINDOW_WIDTH, WINDOW_HEIGHT);
 
 protected:
     float shininess = 200.0f;

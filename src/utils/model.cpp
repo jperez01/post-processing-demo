@@ -1,6 +1,7 @@
 #include "model.h"
 
 #include <iostream>
+#include <assimp/postprocess.h>
 #include <glm/gtx/quaternion.hpp>
 
 void Mesh::calcInterpolatedScaling(aiVector3D& out, float animationTicks, const aiNodeAnim* nodeAnim) {

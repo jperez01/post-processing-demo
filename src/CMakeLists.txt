@@ -13,7 +13,9 @@ add_library(gl_tools
     utils/shader.cpp
     utils/types.cpp
     utils/compute.cpp
-    utils/common_primitives.cpp  "utils/math.h" "utils/math.cpp")
+    utils/common_primitives.cpp
+    utils/math.cpp
+)
 
 add_executable(demo
     exes/main.cpp)
@@ -27,7 +29,7 @@ target_include_directories(demo PUBLIC
     ${PROJECT_SOURCE_DIR}/include)
 
 # Assimp from vcpkg or other package manager
-find_package(assimp CONFIG REQUIRED)
+find_package(assimp REQUIRED)
 find_package(SDL2 REQUIRED COMPONENTS SDL2)
 
 target_link_libraries(gl_tools glad glm stb_image imgui imGuizmo SDL2::SDL2 assimp::assimp)

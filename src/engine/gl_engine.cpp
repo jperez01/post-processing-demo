@@ -15,6 +15,7 @@ void RenderEngine::init_resources() {
     finalPipeline = Shader("default/defaultScreen.vert", "default/defaultScreen.frag");
     ssaoPipeline = ComputeShader("ssao/ssao.glsl");
     blurPipeline = ComputeShader("ssao/blur.glsl");
+    gtaoPipeline = ComputeShader("gtao/gtao.comp");
 
     planeBuffer = glutil::createPlane();
     planeTexture = glutil::loadTexture("../resources/textures/wood.png");
@@ -75,6 +76,9 @@ void RenderEngine::init_resources() {
 
     blurTexture = glutil::createTexture(WINDOW_WIDTH, WINDOW_HEIGHT, GL_FLOAT, GL_RGBA, GL_RGBA16F);
     glBindImageTexture(1, blurTexture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA16F);
+
+    gtaoTexture = glutil::createTexture(WINDOW_WIDTH, WINDOW_HEIGHT, GL_FLOAT, GL_RGBA, GL_RGBA16F);
+    glBindImageTexture(2, gtaoTexture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA16F);
 }
 
 void RenderEngine::render(std::vector<Model>& objs) {
@@ -99,6 +103,18 @@ void RenderEngine::render(std::vector<Model>& objs) {
         renderScene(objs, gBufferPipeline, false);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
+    gtaoPipeline.use();
+    glBindTextureUnit(0, positionTexture);
+    glBindTextureUnit(1, normalTexture);
+
+    glm::vec2 viewSizedUV(1.0f / WINDOW_WIDTH, 1.0f / WINDOW_HEIGHT);
+    gtaoPipeline.setVec2("viewSizedUV", viewSizedUV);
+    gtaoPipeline.setVec2("screenSize", screenSize);
+    gtaoPipeline.setFloat("angleOffset", 0.1f);
+    gtaoPipeline.setVec3("cameraPos", camera->Position);
+
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+    glDispatchCompute(numWarps.x, numWarps.y, numWarps.z);
 
     ssaoPipeline.use();
     glBindTextureUnit(0, positionTexture);
@@ -116,7 +132,7 @@ void RenderEngine::render(std::vector<Model>& objs) {
     glDispatchCompute(WINDOW_WIDTH / warpSize.x, WINDOW_HEIGHT / warpSize.y, warpSize.z);
 
     blurPipeline.use();
-    glBindTextureUnit(0, ssaoTexture);
+    glBindTextureUnit(0, gtaoTexture);
     blurPipeline.setInt("ssaoTexture", 0);
     blurPipeline.setVec2("texelSize", glm::vec2(WINDOW_WIDTH, WINDOW_HEIGHT));
 

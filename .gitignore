@@ -4,4 +4,7 @@
 /.vscode
 /out
 /.vs
+/.idea
 CMakeSettings.json
+cmake-build-debug-visual-studio
+cmake-build-relwithdebinfo-visual-studio

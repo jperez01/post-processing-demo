@@ -28,8 +28,12 @@ class RenderEngine : public GLEngine {
         Shader gBufferPipeline, finalPipeline;
 
         glm::vec3 warpSize = glm::vec3(8.0f, 8.0f, 1.0f);
+        glm::ivec3 numWarps = glm::ivec3(screenSize.x / warpSize.x, screenSize.y / warpSize.y, 1.0);
         ComputeShader ssaoPipeline;
         unsigned int ssaoTexture;
+
+        ComputeShader gtaoPipeline;
+        unsigned int gtaoTexture;
 
         ComputeShader blurPipeline;
         unsigned int blurTexture;
@@ -37,5 +41,5 @@ class RenderEngine : public GLEngine {
         std::vector<glm::vec3> ssaoKernel, ssaoNoise;
         unsigned int noiseTexture;
 
-        void RenderEngine::renderScene(std::vector<Model>& objs, Shader& shader, bool skipTextures);
+        void renderScene(std::vector<Model>& objs, Shader& shader, bool skipTextures);
 };

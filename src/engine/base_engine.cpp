@@ -68,7 +68,7 @@ void GLEngine::drawModels(std::vector<Model>& models, Shader& shader, unsigned c
                 }
                 glActiveTexture(GL_TEXTURE0);
 
-                if (mesh.bone_data.size() != 0 && model.scene->mAnimations > 0) {
+                if (mesh.bone_data.size() != 0 && model.scene->mNumAnimations > 0) {
                     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, mesh.SSBO);
 
                     mesh.getBoneTransforms(animationTime, model.scene, model.nodes, chosenAnimation);
@@ -110,7 +110,7 @@ void GLEngine::loadModelData(Model& model) {
         std::vector<VertexType> endpoints = { POSITION, NORMAL, TEXCOORDS, TANGENT, BI_TANGENT, VERTEX_ID };
         mesh.buffer = glutil::loadVertexBuffer(mesh.vertices, mesh.indices, endpoints);
 
-        if (mesh.bone_data.size() != 0 && model.scene->mAnimations > 0) {
+        if (mesh.bone_data.size() != 0 && model.scene->mNumAnimations > 0) {
             glCreateBuffers(1, &mesh.SSBO);
             glNamedBufferStorage(mesh.SSBO, sizeof(VertexBoneData) * mesh.bone_data.size(),
                 mesh.bone_data.data(), GL_DYNAMIC_STORAGE_BIT);
