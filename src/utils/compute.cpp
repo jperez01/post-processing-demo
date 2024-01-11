@@ -4,13 +4,16 @@
 #include <sstream>
 #include <iostream>
 
-ComputeShader::ComputeShader() {}
+ComputeShader::ComputeShader() = default;
 
 ComputeShader::ComputeShader(std::string computePath) {
     std::string generalPath = "../shaders/";
     std::string fullPath = generalPath + computePath;
     std::string computeCode;
     std::ifstream computeFile;
+
+    std::string finalString = "Compiling and creating shader for path: " + computePath;
+    std::cout << finalString << "\n";
 
     computeFile.exceptions(std::ifstream::failbit | std::ifstream::badbit);
     try {

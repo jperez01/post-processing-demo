@@ -1,0 +1,150 @@
+#version 430 core
+
+layout (binding = 1, rgba8) uniform restrict writeonly image2D aoImageOut;
+
+/*
+The only uniforms needed from this UBO are:
+
+vec3 cameraRay00
+vec3 cameraRay01
+vec3 cameraRay10
+vec3 cameraRay11
+
+The are the rays that make up the "corners" of the screen
+They are not normalized, but rather each is a vector from camera to a plane that is parallel to the camera near and far planes and is placed exactly one unit away from the camera.
+This way one can just interpolate these rays to get such a ray for the current pixel
+And by mutliplying this result with linear depth we get the world space position (relative to the camera)
+See line 123
+*/
+
+uniform vec3 cameraRay00;
+uniform vec3 cameraRay01;
+uniform vec3 cameraRay10;
+uniform vec3 cameraRay11;
+
+// Depth textures need mips
+uniform sampler2D aoTexIn;
+uniform sampler2D gDepth;
+uniform sampler2D texHistoryAo;
+uniform sampler2D texHistoryDepth;
+
+// sizeDiv = vec2(1.0 / aoImageOutWidth, 1.0 / aoImageOutHeight);
+uniform vec2 sizeDiv;
+
+// Controls what mip of the textures is used
+// This is here because I want to be able to switch between calculating AO at half res and full res
+uniform int depthSkip;
+
+uniform mat4 matCurrentInverted;
+uniform mat4 matPrevious;
+
+// Used to calculate the sample's depth in the previous frame
+uniform vec4 cameraPlanePrevious;
+
+// A trick to avoid integer division
+// 5958 = (2^16) / 11
+int IntegerDivideBy_11(int i)
+{
+    return (i * 5958) >> 16;
+}
+
+ivec2 IntModAndDiv_11(int i)
+{
+    ivec2 v = ivec2(i, IntegerDivideBy_11(i));
+    v.x -= v.y * 11;
+    return v;
+}
+
+float CheckRange(vec2 tc)
+{
+    if(tc.x <= 0.0 || tc.y <= 0.0 || tc.x >= 1.0 || tc.y >= 1.0)
+    return 0.0;
+    return 1.0;
+}
+
+#define SIZEXY 8
+
+shared float aoSamples[SIZEXY + 3][SIZEXY + 3];
+shared float depthSamples[SIZEXY + 3][SIZEXY + 3];
+
+layout (local_size_x = SIZEXY, local_size_y = SIZEXY, local_size_z = 1) in;
+void main(void) {
+    ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+
+    // Load texels for spacial filter
+    int threadID = int(gl_LocalInvocationID.y * 8 + gl_LocalInvocationID.x);
+
+    #define OFFSET_FILTER ivec2(-1, -1)
+    #define OFFSET_TEXEL ivec2(0, 0)
+
+    // Preload all needed texels into shared memory to save texture reads
+    // Load 11x11 texels because the thread group size is 8 and we need
+    // extra 3 border texels because of the 4x4 spacial filter
+
+    // Load first 64 samples
+    ivec2 groupTexel = ivec2(gl_WorkGroupID.xy * 8);
+    ivec2 local = IntModAndDiv_11(threadID);
+    aoSamples[local.x][local.y] = texelFetch(aoTexIn, groupTexel + OFFSET_FILTER + local, 0).x;
+    depthSamples[local.x][local.y] = texelFetch(gDepth, ((groupTexel + OFFSET_FILTER + local)) + OFFSET_TEXEL, depthSkip).x;
+
+    // Load the remaining 57 samples (57 = 11 * 11 - 64)
+    if(threadID < 57)
+    {
+        local = IntModAndDiv_11(threadID + 64);
+        aoSamples[local.x][local.y] = texelFetch(aoTexIn, groupTexel + OFFSET_FILTER + local, 0).x;
+        depthSamples[local.x][local.y] = texelFetch(gDepth, ((groupTexel + OFFSET_FILTER + local)) + OFFSET_TEXEL, depthSkip).x;
+    }
+
+    memoryBarrierShared();
+    barrier();
+
+    // Spacial filter
+
+    // Get the depth of the "center" sample - this reference depth is used to weight the other samples
+    float depth = depthSamples[gl_LocalInvocationID.x - OFFSET_FILTER.x][gl_LocalInvocationID.y - OFFSET_FILTER.y];
+    float weightsSpacial = 0.0;
+    float aoLocal = 0.0;
+
+    for(int y = 0; y < 4; y++)
+    {
+        for(int x = 0; x < 4; x++)
+        {
+            // Weight each sample by its distance from the refrence depth - but also scale the weight by 1/10 of the reference depth so that the further from the camera the samples are, the higher the tolerance for depth differences is
+            float localWeight = max(0.0, 1.0 - abs(depthSamples[gl_LocalInvocationID.x + x][gl_LocalInvocationID.y + y] - depth) / (depth * 0.1));
+            weightsSpacial += localWeight;
+            aoLocal += aoSamples[gl_LocalInvocationID.x + x][gl_LocalInvocationID.y + y].x * localWeight;
+        }
+    }
+
+    aoLocal /= weightsSpacial;
+
+    // Temporal filter
+
+    // Get history tc and depth
+    vec2 textureCoords = (texel + vec2(0.5)) * sizeDiv;
+    depth = textureLod(gDepth, textureCoords, depthSkip).x;
+
+    // Reconstruct position from depth
+    // Note that the position is relative to the camera position (not an absolute world space position)
+    vec4 pos = vec4(mix(mix(cameraRay01.xyz, cameraRay11.xyz, textureCoords.x), mix(cameraRay00.xyz, cameraRay10.xyz, textureCoords.x), textureCoords.y) * depth, 1.0);
+
+    // Get the linear depth of the projected position in the last frame
+    float depthProjected = abs(dot(pos, cameraPlanePrevious));
+    // Project the position using last frame's projection
+    // Note that the matrix should not contain camera translation (becuase of the lack of absolute world space position)
+    // Instead the matrix must contain the relative camera translation since the last frame
+    pos = matPrevious * pos;
+    pos /= pos.w;
+    vec2 tcProjected = pos.xy * 0.5 + 0.5;
+
+    float ao = 0.0;
+    float temporalWeight = CheckRange(tcProjected);
+    // Reject history samples that are too far from current sample - same as in spacial filter
+    temporalWeight *= max(0.0, 1.0 - abs(textureLod(texHistoryDepth, tcProjected, depthSkip).x - depthProjected) / (depthProjected * 0.1));
+    ao = texture(texHistoryAo, tcProjected).x;
+    ao = mix(aoLocal, ao, temporalWeight);
+
+    ao = mix(aoLocal, ao, 0.9);
+
+    imageStore(aoImageOut, texel, vec4(ao));
+}

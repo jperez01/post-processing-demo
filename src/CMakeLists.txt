@@ -15,6 +15,8 @@ add_library(gl_tools
     utils/compute.cpp
     utils/common_primitives.cpp
     utils/math.cpp
+        utils/framebuffer.cpp
+        utils/framebuffer.h
 )
 
 add_executable(demo

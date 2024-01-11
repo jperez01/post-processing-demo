@@ -17,14 +17,18 @@ void RenderEngine::init_resources() {
     blurPipeline = ComputeShader("ssao/blur.glsl");
     gtaoPipeline = ComputeShader("gtao/gtao.comp");
 
+    gtaoGraphicsPipeline = Shader("default/defaultScreen.vert", "gtao/gtao.frag");
+    gtaoFrameTexture = glutil::createTexture(WINDOW_WIDTH, WINDOW_HEIGHT, GL_FLOAT, GL_RED, GL_R32F, nullptr, 5);
+    gtaoFramebuffer = Framebuffer({ GL_COLOR_ATTACHMENT0 }, {gtaoFrameTexture});
+
     planeBuffer = glutil::createPlane();
     planeTexture = glutil::loadTexture("../resources/textures/wood.png");
 
     cubemap = EnviornmentCubemap("../resources/textures/skybox/");
     screenQuad.init();
 
-    positionTexture = glutil::createTexture(WINDOW_WIDTH, WINDOW_HEIGHT, GL_FLOAT, GL_RGBA, GL_RGBA16F, nullptr, 1);
-    normalTexture = glutil::createTexture(WINDOW_WIDTH, WINDOW_HEIGHT, GL_FLOAT, GL_RGBA, GL_RGBA16F, nullptr, 1);
+    positionTexture = glutil::createTexture(WINDOW_WIDTH, WINDOW_HEIGHT, GL_FLOAT, GL_RGBA, GL_RGBA16F, nullptr, 5);
+    normalTexture = glutil::createTexture(WINDOW_WIDTH, WINDOW_HEIGHT, GL_FLOAT, GL_RGBA, GL_RGBA16F, nullptr, 5);
     albedoTexture = glutil::createTexture(WINDOW_WIDTH, WINDOW_HEIGHT, GL_UNSIGNED_BYTE, GL_RGBA, GL_RGBA8, nullptr, 1);
     depthMap = glutil::createTexture(WINDOW_WIDTH, WINDOW_HEIGHT, GL_FLOAT_32_UNSIGNED_INT_24_8_REV, GL_DEPTH_STENCIL, GL_DEPTH32F_STENCIL8);
 
@@ -79,6 +83,12 @@ void RenderEngine::init_resources() {
 
     gtaoTexture = glutil::createTexture(WINDOW_WIDTH, WINDOW_HEIGHT, GL_FLOAT, GL_RGBA, GL_RGBA16F);
     glBindImageTexture(2, gtaoTexture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA16F);
+
+    historyAOTexture = glutil::createTexture(screenSize.x, screenSize.y, GL_FLOAT, GL_RGBA, GL_RGBA16F);
+    glBindImageTexture(3, historyAOTexture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_RGBA16F);
+
+    historyDepthTexture = glutil::createTexture(screenSize.x, screenSize.y, GL_FLOAT_32_UNSIGNED_INT_24_8_REV, GL_DEPTH_STENCIL, GL_DEPTH32F_STENCIL8);
+    glBindImageTexture(4, historyDepthTexture, 0, GL_FALSE, 0, GL_READ_WRITE, GL_FLOAT_32_UNSIGNED_INT_24_8_REV);
 }
 
 void RenderEngine::render(std::vector<Model>& objs) {
@@ -102,20 +112,38 @@ void RenderEngine::render(std::vector<Model>& objs) {
         gBufferPipeline.setMat4("model", model);
         renderScene(objs, gBufferPipeline, false);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glGenerateTextureMipmap(positionTexture);
+    glGenerateTextureMipmap(normalTexture);
 
+    // Do GTAO with graphics pipeline
+    /*
+    glBindFramebuffer(GL_FRAMEBUFFER, gtaoFramebuffer.id);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+        gtaoGraphicsPipeline.use();
+        glBindTextureUnit(0, depthMap);
+
+        gtaoGraphicsPipeline.setInt("depthTexture", 0);
+        gtaoGraphicsPipeline.setVec2("reciprocalOfScreenSize", reciprocalOfScreenSize);
+        gtaoGraphicsPipeline.setVec2("screenSize", screenSize);
+        gtaoGraphicsPipeline.setMat4("inverseProj", glm::inverse(proj));
+
+        screenQuad.draw();
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    */
+
+    // Do GTAO
     gtaoPipeline.use();
     glBindTextureUnit(0, positionTexture);
     glBindTextureUnit(1, normalTexture);
 
-    glm::vec2 viewSizedUV(1.0f / WINDOW_WIDTH, 1.0f / WINDOW_HEIGHT);
-    gtaoPipeline.setVec2("viewSizedUV", viewSizedUV);
+    gtaoPipeline.setVec2("reciprocalOfScreenSize", reciprocalOfScreenSize);
     gtaoPipeline.setVec2("screenSize", screenSize);
-    gtaoPipeline.setFloat("angleOffset", 0.1f);
-    gtaoPipeline.setVec3("cameraPos", camera->Position);
 
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
     glDispatchCompute(numWarps.x, numWarps.y, numWarps.z);
 
+
+    // Do SSAO
     ssaoPipeline.use();
     glBindTextureUnit(0, positionTexture);
     glBindTextureUnit(1, normalTexture);
@@ -131,6 +159,7 @@ void RenderEngine::render(std::vector<Model>& objs) {
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
     glDispatchCompute(WINDOW_WIDTH / warpSize.x, WINDOW_HEIGHT / warpSize.y, warpSize.z);
 
+    // Blur AO texture
     blurPipeline.use();
     glBindTextureUnit(0, gtaoTexture);
     blurPipeline.setInt("ssaoTexture", 0);
@@ -139,6 +168,7 @@ void RenderEngine::render(std::vector<Model>& objs) {
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
     glDispatchCompute(WINDOW_WIDTH / warpSize.x, WINDOW_HEIGHT / warpSize.y, warpSize.z);
 
+    // Show texture on screen
     finalPipeline.use();
     glBindTextureUnit(0, blurTexture);
     finalPipeline.setInt("blurTexture", 0);

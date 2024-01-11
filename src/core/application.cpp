@@ -55,7 +55,6 @@ void Application::init()
     glGetIntegerv(GL_NUM_EXTENSIONS, &numExtensions);
     for (int i = 0; i < numExtensions; i++) {
         std::string extension = (const char*)glGetStringi(GL_EXTENSIONS, i);
-        std::cout << extension << "\n";
         if (extension == "GL_ARB_bindless_texture") {
             std::cout << "Bindless Textures supported" << "\n";
             break;

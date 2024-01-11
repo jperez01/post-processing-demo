@@ -9,18 +9,11 @@ layout (rgba16f, binding = 2) uniform image2D gtaoTexture;
 uniform sampler2D gPosition;
 uniform sampler2D gNormal;
 
-uniform vec2 viewSizedUV;
+uniform vec2 reciprocalOfScreenSize;
 uniform vec2 screenSize;
 
-uniform int numSamples = 4;
-uniform float angleOffset;
-
-uniform vec3 cameraPos;
-
-vec3 getCameraNormalVec(vec2 texCoords) {
-    vec3 pos = texture(gPosition, texCoords).xyz;
-    return normalize(pos - cameraPos);
-}
+uniform int sliceCount = 8;
+uniform int sampleCount = 4;
 
 float GTAOFastAcos(float x)
 {
@@ -37,53 +30,69 @@ float integrateArc(float horizon1, float horizon2, float n) {
     return h1Integral + h2Integral;
 }
 
-void sliceSample(vec3 initialPos, vec2 initialUV, int i, vec2 aoDirection, vec3 normal, inout float horizon) {
-    vec2 otherUV = initialUV + aoDirection * i;
-
-    vec3 otherPos = texture(gPosition, otherUV).xyz;
-    vec3 horizonVec = otherPos - initialPos;
-
-    float possibleHorizonValue = dot(normal, normalize(horizonVec));
-
-    horizon = max(horizon, possibleHorizonValue);
-}
-
 void main() {
+    // Use texCoords and get sample data
     ivec2 texCoords = ivec2(gl_GlobalInvocationID.xy);
-    vec2 convertedTexCoords = vec2(float(texCoords.x) / 1920.0, float(texCoords.y) / 1080.0);
+    vec2 convertedTexCoords = vec2(texCoords.x / 1920.0, texCoords.y / 1080.0);
 
-    vec3 initialPos = texture(gPosition, convertedTexCoords).xyz;
-    vec3 normal = texture(gNormal, convertedTexCoords).xyz;
+    float initialMipLevel = clamp(log2(length(convertedTexCoords)) - 3.3, 0.0, 5.0);
 
-    vec2 dirMult = viewSizedUV;
-    vec3 viewDirection = -getCameraNormalVec(convertedTexCoords);
+    vec3 normal = textureLod(gNormal, convertedTexCoords, initialMipLevel).xyz;
+    vec3 viewSpacePos = textureLod(gPosition, convertedTexCoords, initialMipLevel).xyz;
+    vec3 viewVector = normalize(-viewSpacePos);
 
-    // Calculate the slice direction from current pixel
-    float dirAngle = (PI / 16.0) * ((texCoords.x + texCoords.y) & 3 << 2) + (texCoords.x & 3) + angleOffset;
-    vec2 aoDirection = dirMult * vec2(cos(dirAngle), sin(dirAngle));
+    // Initialize extra variables
+    float effectRadius = 0.5 * 1.457;
+    float falloffRange = 0.615 * effectRadius;
+    float falloffFrom = effectRadius * (1.0 - 0.615);
+    float falloffMultipler = -1.0 / falloffRange;
+    float falloffAdd = falloffFrom / falloffRange + 1.0;
 
-    // Project world space normal to slice plane
-    vec3 toDirection = getCameraNormalVec(convertedTexCoords + aoDirection);
-    vec3 planeNormal = normalize(cross(viewDirection, -toDirection));
-    vec3 projectedNormal = normal - planeNormal * dot(normal, planeNormal);
+    float visibility = 0.0;
+    for (int slice = 0; slice < sliceCount; slice++) {
+        float angle = (PI / sliceCount) * slice;
+        vec2 angleVector = vec2(cos(angle), sin(angle));
 
-    // Calculate angle between view vector and projected normal
-    vec3 projectedDir = normalize(normalize(toDirection) + viewDirection);
-    float normalAngle = GTAOFastAcos(dot(-projectedDir, normalize(projectedNormal))) - PI_HALF;
+        vec3 directionVector = vec3(angleVector.x, angleVector.y, 0);
+        vec3 orthoDirectionVector = directionVector - (dot(directionVector, viewVector) * viewVector);
+        vec3 axis = cross(directionVector, viewVector);
+        vec3 projectedNormal = normal - axis * dot(normal, axis);
 
-    float initialh1 = -1.0, initialh2 = -1.0;
-    for (int i = 1; i < numSamples; i++) {
-        sliceSample(initialPos, convertedTexCoords, i, aoDirection, viewDirection, initialh1);
-        sliceSample(initialPos, convertedTexCoords, -i, aoDirection, viewDirection, initialh2);
+        float signOfNormal = sign(dot(orthoDirectionVector, projectedNormal));
+        float cosNormal = dot(projectedNormal, viewVector) / length(projectedNormal);
+        float clampedCos = clamp(cosNormal, 0.0, 1.0);
+
+        float n = signOfNormal * GTAOFastAcos(clampedCos);
+
+        for (int side = 0; side <= 1; side++) {
+            float horizonCos = -1.0;
+            int sideValue = side * 2 - 1;
+            float minHorizonCos = cos(n + sideValue * PI_HALF);
+            vec2 sampleMultipler = vec2(angleVector.x, angleVector.y) * reciprocalOfScreenSize;
+
+            for (float currentSample = 0; currentSample < sampleCount; currentSample += 1.0) {
+                float s = currentSample / sampleCount;
+
+                vec2 sTexCoords = convertedTexCoords + sideValue * s * sampleMultipler;
+                float sampleMipLevel = clamp(log2(length(sTexCoords)) - 3.3, 0.0, 5.0);
+
+                vec3 otherPos = textureLod(gPosition, sTexCoords, sampleMipLevel).xyz;
+                vec3 horizonVec = normalize(otherPos - viewSpacePos);
+                float sampleHorizonCos = dot(horizonVec, viewVector);
+
+                float weight = clamp(sampleHorizonCos * falloffMultipler + falloffAdd, 0.0, 1.0);
+
+                float newSampleHorizonCos = mix(minHorizonCos, sampleHorizonCos, weight);
+
+                horizonCos = max(horizonCos, newSampleHorizonCos);
+            }
+
+            float horizonValue = n + clamp(sideValue * GTAOFastAcos(horizonCos) - n, -PI_HALF, PI_HALF);
+            float horizonIntegral = 0.25 * (clampedCos + 2.0 * horizonValue * sin(n) - cos(2.0 * horizonValue - n));
+            visibility += length(projectedNormal) * horizonIntegral;
+        }
     }
+    visibility /= sliceCount;
 
-    float horizon1 = -GTAOFastAcos(initialh1), horizon2 = GTAOFastAcos(initialh2);
-
-    horizon1 = normalAngle + max(horizon1 - normalAngle, -PI/2);
-    horizon2 = normalAngle + max(horizon2 - normalAngle, PI/2);
-
-    float visibility = integrateArc(horizon1, horizon2, normalAngle);
-    visibility = mix(1.0, visibility, length(projectedNormal));
-
-    imageStore(gtaoTexture, texCoords, vec4(visibility));
+    imageStore(gtaoTexture, texCoords, vec4(visibility / 20.0, 0.0, 0.0, 1.0));
 }
